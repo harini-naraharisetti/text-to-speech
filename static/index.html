@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Text to Speech</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#101219; --panel:#171a23; --line:#272c38; --raise:#1e222c;
+  --text:#dfe3ec; --muted:#79839a; --accent:#ffb02e; --bad:#ff6b5e; --ok:#4ade80;
+  --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  --body:'Inter',system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--ink);color:var(--text);font-family:var(--body);
+  min-height:100vh;display:flex;justify-content:center;padding:32px 20px 80px}
+.wrap{width:100%;max-width:940px}
+header{display:flex;align-items:baseline;gap:14px;border-bottom:1px solid var(--line);
+  padding-bottom:18px;margin-bottom:28px;flex-wrap:wrap}
+.idx{font-family:var(--mono);font-size:12px;letter-spacing:.14em;color:var(--accent);
+  border:1px solid var(--accent);border-radius:3px;padding:3px 7px}
+h1{font-family:var(--mono);font-size:20px;font-weight:600;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:13px;margin-left:auto}
+.led{width:7px;height:7px;border-radius:50%;background:var(--line);display:inline-block;
+  margin-right:7px;vertical-align:middle;transition:background .2s}
+.led.on{background:var(--accent);animation:pulse 1s infinite}
+.led.done{background:var(--ok)} .led.err{background:var(--bad)}
+@keyframes pulse{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.led.on{animation:none}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:20px;margin-bottom:18px}
+label{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+input,textarea,select{width:100%;background:var(--raise);border:1px solid var(--line);
+  color:var(--text);border-radius:5px;padding:11px 13px;font-family:var(--body);font-size:14px;outline:none}
+textarea{font-family:var(--mono);font-size:13px;line-height:1.6;resize:vertical}
+input:focus,textarea:focus,select:focus{border-color:var(--accent)}
+.row{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px;align-items:center}
+button{background:var(--accent);color:#101219;border:0;border-radius:5px;padding:11px 20px;
+  font-family:var(--mono);font-size:13px;font-weight:600;cursor:pointer}
+button:hover{filter:brightness(1.1)} button:disabled{opacity:.4;cursor:not-allowed}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.out{white-space:pre-wrap;font-family:var(--mono);font-size:13px;line-height:1.75;min-height:60px}
+.out:empty::before{content:'Output appears here.';color:var(--muted)}
+.meta{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:14px;
+  padding-top:14px;border-top:1px solid var(--line)}
+.tag{display:inline-block;font-family:var(--mono);font-size:11px;background:var(--raise);
+  border:1px solid var(--line);border-radius:3px;padding:2px 7px;margin:0 6px 6px 0;color:var(--muted)}
+.tag.hi{color:var(--accent);border-color:var(--accent)}
+.tag.bad{color:var(--bad);border-color:var(--bad)}
+.file{border:1px dashed var(--line);border-radius:6px;padding:22px;text-align:center;color:var(--muted);
+  font-family:var(--mono);font-size:13px;cursor:pointer}
+.file:hover{border-color:var(--accent);color:var(--text)}
+</style>
+</head><body><div class="wrap">
+<header>
+  <span class="idx">05 / 10</span>
+  <h1>Text to Speech</h1>
+  <span class="sub"><span class="led" id="led"></span><span id="status">idle</span></span>
+</header>
+<div class="panel">
+  <label for="text">Text to speak</label>
+  <textarea id="text" rows="5">The rain in Hyderabad arrives without warning, and leaves the same way.</textarea>
+  <div class="row">
+    <div style="flex:1;min-width:200px"><label for="voice">Voice</label>
+      <select id="voice"><option>loading…</option></select></div>
+    <div style="width:120px"><label for="rate">Rate %</label>
+      <input id="rate" type="number" value="0" min="-50" max="100"></div>
+    <div style="width:120px"><label for="pitch">Pitch Hz</label>
+      <input id="pitch" type="number" value="0" min="-50" max="50"></div>
+  </div>
+  <div class="row"><button id="go">Speak</button>
+    <button id="dl" class="ghost" disabled>Download MP3</button></div>
+</div>
+<div class="panel"><label>Audio</label>
+  <audio id="audio" controls style="width:100%;margin-top:4px"></audio>
+  <div class="meta" id="meta"></div></div>
+</div>
+<script>
+const led=document.getElementById('led'), status=document.getElementById('status');
+function setState(s,msg){led.className='led'+(s?' '+s:'');status.textContent=msg;}
+const $=id=>document.getElementById(id);
+let url=null;
+
+fetch('/api/voices').then(r=>r.json()).then(vs=>{
+  $('voice').innerHTML=vs.map(v=>
+    `<option value="${v.name}"${v.name==='en-US-AriaNeural'?' selected':''}>${v.name} · ${v.gender}</option>`
+  ).join('');
+  setState('','idle — '+vs.length+' voices');
+});
+
+$('go').onclick=async()=>{
+  setState('on','synthesising…'); $('go').disabled=true;
+  try{
+    const r=await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:$('text').value,voice:$('voice').value,
+        rate:+$('rate').value,pitch:+$('pitch').value})});
+    if(!r.ok) throw new Error((await r.json()).detail||'failed');
+    const blob=await r.blob();
+    if(url) URL.revokeObjectURL(url);
+    url=URL.createObjectURL(blob);
+    $('audio').src=url; $('audio').play(); $('dl').disabled=false;
+    $('meta').innerHTML=`<span class="tag hi">${$('voice').value}</span>`+
+      `<span class="tag">${(blob.size/1024).toFixed(0)} KB</span>`+
+      `<span class="tag">${$('text').value.length} chars</span>`;
+    setState('done','playing');
+  }catch(e){ setState('err',String(e.message||e)); }
+  $('go').disabled=false;
+};
+
+$('dl').onclick=()=>{ const a=document.createElement('a');
+  a.href=url; a.download='speech.mp3'; a.click(); };
+</script></body></html>
